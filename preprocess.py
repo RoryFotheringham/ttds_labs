@@ -3,7 +3,7 @@ from nltk.stem import PorterStemmer
 ps = PorterStemmer()
 # we want tokenizer to 
 class Tokenizer:
-    def __init__(self):
+    def __init__(self, limit=None):
         self.data = ''
         self.terms = []
 
@@ -63,12 +63,16 @@ class Tokenizer:
 
     def split_to_docs_on_line(self, filename):
         f = open(filename, 'r', encoding='UTF-8')
-        corp = f.read()
+        if self.limit:
+            corp = f.read(self.limit)
+        else:
+            corp = f.read()
         corp_list = corp.split('\n')
         #print(corp_list)
         corp_docs = [self.load_and_tokenise_memory(doc) for doc in corp_list]
         corp_docs = [doc for doc in corp_docs if doc != [] ]
         #print(corp_docs)
+        f.close()
         return corp_docs
 
 
