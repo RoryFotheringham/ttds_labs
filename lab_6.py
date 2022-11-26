@@ -145,7 +145,7 @@ def train_lda(doclist, common_dictionary):
     common_corpus = []
     for cat in doclist.cat_list:
         common_corpus = common_corpus + [common_dictionary.doc2bow(text) for text in doclist.docs_map.get(cat)]
-    lda = LdaModel(common_corpus, num_topics=10, id2word=common_dictionary)
+    lda = LdaModel(common_corpus, num_topics=20, id2word=common_dictionary)
     return lda
 
 def get_overall_topic_probs_for_cat(common_dictionary, doclist, lda, cat):
@@ -163,7 +163,7 @@ def get_overall_topic_probs_for_cat(common_dictionary, doclist, lda, cat):
     for topic in topic_map.keys():
         topic_prob_list.append((topic, topic_map.get(topic)/doclist.cat_size.get(cat)))
     
-    topic_prob_list.sort(key=lambda x: x[1])
+    topic_prob_list.sort(key=lambda x: x[1], reverse=True)
     tpl_trunc = topic_prob_list[:3]
     topic_list = [pair[0] for pair in tpl_trunc]
 
