@@ -161,7 +161,7 @@ def get_overall_topic_probs_for_cat(common_dictionary, doclist, lda, cat):
                 topic_map.update({pair[0] : pair[1]})
 
     for topic in topic_map.keys():
-        topic_prob_list.append((topic, topic_map.get(topic)/len(doclist.docs_map.get(cat))))
+        topic_prob_list.append((topic, topic_map.get(topic)/doclist.cat_size(cat)))
     
     topic_prob_list.sort(key=lambda x: x[1])
     tpl_trunc = topic_prob_list[:3]
