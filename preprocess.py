@@ -6,27 +6,28 @@ class Tokenizer:
     def __init__(self, limit=None):
         self.data = ''
         self.terms = []
+        f = open('stopwords.txt', 'r')
+        self.stops = f.readlines()
+        self.stops = [stop.strip() for stop in self.stops]
+        f.close()
 
     def tokenize(self):
         data = self.data.splitlines()
         self.data = ''
         words = []
         for line in data:
-            line = line.replace('-', ' ')
+            #line = line.replace('-', ' ')
             line = line.replace("\'", "'")
             list = line.split(" ")
             words = words + list
 
-        f = open('stopwords.txt', 'r')
-        stops = f.readlines()
-        stops = [stop.strip() for stop in stops]
-        f.close()
+        
 
         data = words
         data = [word.strip(punctuation) for word in data]
         data = [word.lower() for word in data if word != ""]
 
-        data = [ps.stem(word) for word in data if not(word in stops) and not('http' in word)]
+        data = [ps.stem(word) for word in data if not(word in self.stops) and not('http' in word)]
         
         #data = [ps.stem(word) for word in data]
 
