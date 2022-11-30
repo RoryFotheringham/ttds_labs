@@ -1,4 +1,4 @@
-from cmath import log10
+
 import sklearn
 import collections
 import re
@@ -10,7 +10,7 @@ from sklearn import svm
 from sklearn import ensemble
 from sklearn.metrics import classification_report
 import sys
-from math import floor, log2
+from math import floor, log2, log10
 from preprocess import Tokenizer
 import random
 
@@ -138,27 +138,31 @@ def extra_processing(docs, cats):
         if new_doc:
             new_docs.append(new_doc)
             new_cats.append(cats[count])
-    return new_docs, new_cats, new_vocab
+    return new_docs, new_cats, new_vocab       
             
-            
-
 
 def convert_to_matrix_improve(data, word2id, id2df):  
     matrix_size = (len(data), len(word2id)+2)
     oov_index = len(word2id)
-    oov_value = 10 ## think about this value - I think I just want it pretty small
+    oov_value = 0.3 ## think about this value - I think I just want it pretty small
     tweet_len_index = len(word2id)+1
     X = scipy.sparse.dok_matrix(matrix_size)
     for doc_id,doc in enumerate(data):
-        X[doc_id,tweet_len_index] = len(doc)
+        doc_len_feature = log10(len(doc))
+        tp = type(doc_len_feature)
+        X[doc_id,tweet_len_index] = doc_len_feature
         for word in doc:
             word_id = word2id.get(word,oov_index)
             # using log idf but linear tf because tweets are short but there are loads of them
             if word_id == oov_index:
                 X[doc_id,word_id] += oov_value
             else:
-                X[doc_id,word_id] += log2(len(train_docs)/id2df.get(word_id))
+                X[doc_id,word_id] += log10(len(data)/id2df.get(word_id))
     return X
+
+
+def create_eval_dict_per_set(true, preds, cat_names):
+    return classification_report(true, preds, target_names=cat_names, output_dict=True)
 
 
 def convert_to_cat_vector(categories, cat2id):
@@ -167,60 +171,74 @@ def convert_to_cat_vector(categories, cat2id):
         cat_vector.append(cat2id.get(cat))
     return cat_vector
 
-train_docs_imp, train_cats_imp, vocab_imp = extra_processing(train_docs, train_cats)
-dev_docs_imp, dev_cats_imp, _ = extra_processing(dev_docs, dev_cats)
-
-
-word2id_imp = make_word2id(vocab_imp)
-cat2id_imp, id2cat_imp = make_cat2id_vv(train_cats_imp)
-
-word2id_base = make_word2id(vocab)
-cat2id_base, id2cat_base = make_cat2id_vv(train_cats)
-
-
-id2df_imp = make_id2df(train_docs_imp, word2id_imp)
-
-X_train_base = convert_to_bow_matrix_baseline(train_docs, word2id_base)
-X_train_imp = convert_to_matrix_improve(train_docs_imp, word2id_imp, id2df_imp)
-
-y_true_train_base = convert_to_cat_vector(train_cats, cat2id_base)
-y_true_train_imp = convert_to_cat_vector(train_cats_imp, cat2id_imp)
-#X_test_base = convert_to_bow_matrix_baseline(test_docs, word2id)
-#y_true_test = convert_to_cat_vector(test_cats, cat2id)
-
-X_dev_base = convert_to_bow_matrix_baseline(dev_docs, word2id_base)
-X_dev_imp = convert_to_matrix_improve(dev_docs, word2id_imp, id2df_imp)
-
-y_true_dev = convert_to_cat_vector(dev_cats, cat2id_imp)
-
-
-cat_names = []
-for cat,cid in sorted(cat2id_imp.items(),key=lambda x:x[1]):
-    cat_names.append(cat)
-
-
-def create_eval_dict_per_set(true, preds):
-    return classification_report(true, preds, target_names=cat_names, output_dict=True)
 
 def generate_fitted_model(X_train, y_train, C):
     model = sklearn.svm.LinearSVC(C=C)
     model.fit(X_train, y_train)
     return model
 
-base_model = generate_fitted_model(X_train_base, y_true_train_base, 1000)
-base_train_preds = base_model.predict(X_train_base)
-#base_test_preds = base_model.predict(X_dev_base) ##MUST CHANGE TEST WHEN TEST COMES
-base_dev_preds = base_model.predict(X_dev_base)
 
-imp_model = generate_fitted_model(X_train_imp, y_true_train_imp, 1000)
+def make_X_train_and_fit_imp(docs, cats, C):
+    # extra processing on documents
+    new_docs, new_cats, vocab = extra_processing(docs, cats)
+    word2id = make_word2id(vocab)
+    cat2id, _ = make_cat2id_vv(new_cats)
+    id2df = make_id2df(new_docs, word2id)
+    X_train = convert_to_matrix_improve(new_docs, word2id, id2df)
+    y_train = convert_to_cat_vector(new_cats, cat2id)
+    model = generate_fitted_model(X_train, y_train, C)
+    return model, X_train, word2id, id2df, cat2id # also returns X_train bc need to predict on it
 
-# X_train might be a different size, I might have compressed features only using big MI score words etc.
-imp_train_preds = imp_model.predict(X_train_imp)
-#imp_test_preds = imp_model.predict(X_dev_imp) ##MUST CHANGE TEST WHEN TEST COMES
-imp_dev_preds = imp_model.predict(X_dev_imp)
 
-def add_preds_to_file(file, true, preds):
-    dict = create_eval_dict_per_set(true, preds)
+def make_X_train_and_fit_base(docs, cats, vocab, C):
+    word2id = make_word2id(vocab)
+    cat2id, _ = make_cat2id_vv(cats)
+    X_train = convert_to_bow_matrix_baseline(docs, word2id)
+    y_train = convert_to_cat_vector(cats, cat2id)
+    model = generate_fitted_model(X_train, y_train, C)
+    return model, X_train, word2id, cat2id
+
+def get_preds_and_true_from_data_base(docs, cats, model, word2id, cat2id):
+    X = convert_to_bow_matrix_baseline(docs, word2id)
+    y_true = convert_to_cat_vector(cats, cat2id)
+    y_pred = model.predict(X)
+    return y_true, y_pred
+
+def get_preds_and_true_from_data_imp(docs, cats, model, word2id, id2df, cat2id):
+    new_docs, new_cats, _ = extra_processing(docs, cats)
+    X = convert_to_matrix_improve(new_docs, word2id, id2df)
+    y_true = convert_to_cat_vector(new_cats, cat2id)
+    y_pred = model.predict(X)
+    return y_true, y_pred
+
+
+def make_cat_names(cat2id):
+    cat_names = []
+    for cat,cid in sorted(cat2id.items(),key=lambda x:x[1]):
+        cat_names.append(cat)
+    return cat_names
+
+base_model, X_train_base, word2id_base, cat2id_base = make_X_train_and_fit_base(train_docs, train_cats, vocab, 1000)
+imp_model, X_train_imp, word2id_imp, id2df_imp, cat2id_imp = make_X_train_and_fit_imp(train_docs, train_cats, 1000)
+
+cat_names_base = make_cat_names(cat2id_base)
+cat_names_imp = make_cat_names(cat2id_imp)
+
+y_true_train_base, y_pred_train_base = get_preds_and_true_from_data_base(train_docs, train_cats, base_model,
+ word2id_base, cat2id_base)
+
+y_true_train_imp, y_pred_train_imp = get_preds_and_true_from_data_imp(train_docs, train_cats, imp_model,
+ word2id_imp, id2df_imp, cat2id_imp)
+
+y_true_dev_base, y_pred_dev_base = get_preds_and_true_from_data_base(dev_docs, dev_cats, base_model,
+ word2id_base, cat2id_base)
+
+y_true_dev_imp, y_pred_dev_imp = get_preds_and_true_from_data_imp(dev_docs, dev_cats, imp_model,
+ word2id_imp, id2df_imp, cat2id_imp)
+
+
+def add_preds_to_file(file, true, preds, cat_names):
+    dict = create_eval_dict_per_set(true, preds, cat_names)
     write_cat(dict, file, 'positive')
     write_cat(dict, file, 'negative')
     write_cat(dict, file, 'neutral')
@@ -244,50 +262,18 @@ f = open('classification.csv', 'w')
 f.write('system,split,p-pos,r-pos,f-pos,p-neg,r-neg,f-neg,p-neu,r-neu,f-neu,p-macro,r-macro,f-macro\n')
 f.write('baseline,train,')
 
-add_preds_to_file(f,y_true_train_base,base_train_preds)
+add_preds_to_file(f,y_true_train_base,y_pred_train_base, cat_names_base)
 f.write('\nbaseline,dev,')
-add_preds_to_file(f,y_true_dev,base_dev_preds)
+add_preds_to_file(f,y_true_dev_base,y_pred_dev_base, cat_names_base)
 f.write('\nbaseline,test,')
 #add_preds_to_file(f,y_true_test,base_test_preds)
 f.write('\nimproved,train,')
-add_preds_to_file(f,y_true_train_imp,imp_train_preds)
+add_preds_to_file(f,y_true_train_imp,y_pred_train_imp, cat_names_imp)
 f.write('\nimproved,dev,')
-add_preds_to_file(f,y_true_dev,imp_dev_preds)
+add_preds_to_file(f,y_true_dev_imp,y_pred_dev_imp, cat_names_imp)
 f.write('\nimproved,test,')
 #add_preds_to_file(f,y_true_test,imp_test_preds)
 
 
-#rest of writing code goes in here
-
-#                                  #
-
 f.close()
     
-
-# print(classification_report(y_test, y_test_predictions, target_names=cat_names))
-
-
-# pos_sample = ['cant', 'wait', 'to', 'see', 'ed', 'shearans', 'nips', 'live', 'on', 'stage', 'pure', 'buzzin']
-# neg_sample = ['fucking', 'annoying', 'how', 'tiny', 'shearans', 'nips', 'were', 'last', 'night']
-# neu_sample = ['i', 'dont', 'know', 'what', 'to', 'do', 'today']
-
-# def tweet_to_sparse(tweet):
-#     sample_tweet = scipy.sparse.dok_matrix((1, len(word2id)+1))
-#     for word in tweet:
-#         sample_tweet[0, word2id.get(word,len(word2id))] += 1
-#     return sample_tweet
-
-# pos = tweet_to_sparse(pos_sample)
-# neg = tweet_to_sparse(neg_sample)
-# neu = tweet_to_sparse(neu_sample)
-
-# model = sklearn.svm.LinearSVC(C=1000)
-# model.fit(X_train, y_train)
-# pred_pos = model.predict(pos)
-# pred_neg = model.predict(neg)
-# pred_neu = model.predict(neu)
-# print('pos {}\nneg {}\nneu {}'.format(pred_pos, pred_neg, pred_neu))
-# print(cat2id)
-
-
-# y_test_predictions = model.predict(X_test)
