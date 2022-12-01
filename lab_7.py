@@ -13,10 +13,14 @@ import sys
 from math import floor, log2, log10
 from preprocess import Tokenizer
 import random
+import lab_6
 
 filename = sys.argv[1]
 train_rat = 0.8
 dev_rat = 0.2
+num_of_mi_words = 2500
+mi_mult = 15
+all_caps_multiplier = 1
 
 chars_to_remove = re.compile(f'[{string.punctuation}]')
 
@@ -116,12 +120,30 @@ def extra_processing(docs, cats):
     for count,doc in enumerate(docs):
         new_doc = []
         for word in doc:
+            if word.isupper():
+                new_doc.append(chars_to_remove.sub('',word))
+                new_vocab.add(chars_to_remove.sub('',word))
+                
+                
             word = word.lower()
-            tkword = tk.load_and_tokenize_memory(data=word)
+            tkword = tk.load_and_tokenize_memory(data=word, special=True)
+            
+            
+                
+            
+            # if all_caps:
+            #     for _ in range(all_caps_multiplier):
+            #         for term in tkword:
+            #             new_doc.append(term)
+            #             new_vocab.add(term)
+                
+            if word[len(word)-1] == '!':
+                new_doc.append('!')
+                new_vocab.add('!')
             if word[0] == '#':
                 new_doc.append(word)
                 new_vocab.add(word)
-                post_tag = tk.load_and_tokenize_memory(data=word[1:])
+                post_tag = tk.load_and_tokenize_memory(data=word[1:], special=True)
                 for word in post_tag:
                     new_doc.append(word)
                     new_vocab.add(word)
@@ -130,34 +152,39 @@ def extra_processing(docs, cats):
                 new_doc.append(word)
                 new_vocab.add(word)
                 
+                
             
             elif tkword:
                 for word in tkword:
                     new_doc.append(word)
                     new_vocab.add(word)
+                    
+                    
         if new_doc:
             new_docs.append(new_doc)
             new_cats.append(cats[count])
     return new_docs, new_cats, new_vocab       
             
 
-def convert_to_matrix_improve(data, word2id, id2df):  
+def convert_to_matrix_improve(data, word2id, id2df, mis):  
     matrix_size = (len(data), len(word2id)+2)
     oov_index = len(word2id)
-    oov_value = 0.3 ## think about this value - I think I just want it pretty small
+    oov_value = 1 ## think about this value - I think I just want it pretty small
     tweet_len_index = len(word2id)+1
     X = scipy.sparse.dok_matrix(matrix_size)
     for doc_id,doc in enumerate(data):
-        doc_len_feature = log10(len(doc))
-        tp = type(doc_len_feature)
+        doc_len_feature = log2(len(doc))
         X[doc_id,tweet_len_index] = doc_len_feature
         for word in doc:
             word_id = word2id.get(word,oov_index)
-            # using log idf but linear tf because tweets are short but there are loads of them
+            multiplier = 1
+            if word_id in mis:
+                multiplier = mi_mult
             if word_id == oov_index:
                 X[doc_id,word_id] += oov_value
             else:
-                X[doc_id,word_id] += log10(len(data)/id2df.get(word_id))
+                #X[doc_id,word_id] += len(data)/id2df.get(word_id)
+                X[doc_id,word_id] += 1 * multiplier
     return X
 
 
@@ -177,17 +204,35 @@ def generate_fitted_model(X_train, y_train, C):
     model.fit(X_train, y_train)
     return model
 
+def get_top_mi_words(new_docs, new_cats, word2id, cat2id, num):
+        tk = Tokenizer()
+        doclist = lab_6.DocList()
+    
+        for i,doc in enumerate(new_docs):
+            doclist.append_cat_safe_memory_processed([doc], cat2id.get(new_cats[i]), tk)
+            
+        mis = set([])
+        for catid in cat2id.items():
+            mi4all = lab_6.mi_for_all_terms(doclist, catid[1])[:num]
+            for mi in mi4all:
+                mis.add(word2id.get(mi[0]))
+        
+        return mis
+
 
 def make_X_train_and_fit_imp(docs, cats, C):
     # extra processing on documents
     new_docs, new_cats, vocab = extra_processing(docs, cats)
     word2id = make_word2id(vocab)
-    cat2id, _ = make_cat2id_vv(new_cats)
+    cat2id, id2cat = make_cat2id_vv(new_cats)
     id2df = make_id2df(new_docs, word2id)
-    X_train = convert_to_matrix_improve(new_docs, word2id, id2df)
+    
+    mis = get_top_mi_words(new_docs, new_cats, word2id, cat2id, num_of_mi_words)
+  
+    X_train = convert_to_matrix_improve(new_docs, word2id, id2df, mis)
     y_train = convert_to_cat_vector(new_cats, cat2id)
     model = generate_fitted_model(X_train, y_train, C)
-    return model, X_train, word2id, id2df, cat2id # also returns X_train bc need to predict on it
+    return model, X_train, word2id, id2df, cat2id, id2cat, mis # also returns X_train bc need to predict on it
 
 
 def make_X_train_and_fit_base(docs, cats, vocab, C):
@@ -204,12 +249,13 @@ def get_preds_and_true_from_data_base(docs, cats, model, word2id, cat2id):
     y_pred = model.predict(X)
     return y_true, y_pred
 
-def get_preds_and_true_from_data_imp(docs, cats, model, word2id, id2df, cat2id):
+def get_preds_and_true_from_data_imp(docs, cats, model, word2id, id2df, cat2id, id2cat, mis):
     new_docs, new_cats, _ = extra_processing(docs, cats)
-    X = convert_to_matrix_improve(new_docs, word2id, id2df)
+    X = convert_to_matrix_improve(new_docs, word2id, id2df, mis)
     y_true = convert_to_cat_vector(new_cats, cat2id)
     y_pred = model.predict(X)
-    return y_true, y_pred
+    write_crime_scenes(new_docs, X, y_true, y_pred, id2cat)
+    return y_true, y_pred, new_docs
 
 
 def make_cat_names(cat2id):
@@ -218,8 +264,25 @@ def make_cat_names(cat2id):
         cat_names.append(cat)
     return cat_names
 
+def write_crime_scenes(docs, X, y_true, y_pred, id2cat):
+    crime_scenes = []
+    for i,pred in enumerate(y_pred):
+        if y_true[i] != pred:
+            #doc is only ever preprocessed. 
+            #would take more bookkeeping to get actual orig doc. 
+            
+            crime_scenes.append((docs[i], X[i].items(), id2cat.get(pred), id2cat.get(y_true[i])))
+    
+    with open('crime_scenes.txt', 'w') as f:
+        for crime in crime_scenes:
+            f.write(str(crime) + '\n\n')
+    return crime_scenes
+    
+        
+
+
 base_model, X_train_base, word2id_base, cat2id_base = make_X_train_and_fit_base(train_docs, train_cats, vocab, 1000)
-imp_model, X_train_imp, word2id_imp, id2df_imp, cat2id_imp = make_X_train_and_fit_imp(train_docs, train_cats, 1000)
+imp_model, X_train_imp, word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp = make_X_train_and_fit_imp(train_docs, train_cats, 0.00005)
 
 cat_names_base = make_cat_names(cat2id_base)
 cat_names_imp = make_cat_names(cat2id_imp)
@@ -227,14 +290,16 @@ cat_names_imp = make_cat_names(cat2id_imp)
 y_true_train_base, y_pred_train_base = get_preds_and_true_from_data_base(train_docs, train_cats, base_model,
  word2id_base, cat2id_base)
 
-y_true_train_imp, y_pred_train_imp = get_preds_and_true_from_data_imp(train_docs, train_cats, imp_model,
- word2id_imp, id2df_imp, cat2id_imp)
+y_true_train_imp, y_pred_train_imp, docs_train_imp = get_preds_and_true_from_data_imp(train_docs, train_cats, imp_model,
+ word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
 
 y_true_dev_base, y_pred_dev_base = get_preds_and_true_from_data_base(dev_docs, dev_cats, base_model,
  word2id_base, cat2id_base)
 
-y_true_dev_imp, y_pred_dev_imp = get_preds_and_true_from_data_imp(dev_docs, dev_cats, imp_model,
- word2id_imp, id2df_imp, cat2id_imp)
+y_true_dev_imp, y_pred_dev_imp, docs_dev_imp = get_preds_and_true_from_data_imp(dev_docs, dev_cats, imp_model,
+ word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
+
+
 
 
 def add_preds_to_file(file, true, preds, cat_names):

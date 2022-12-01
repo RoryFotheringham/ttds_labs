@@ -16,7 +16,7 @@ class Tokenizer:
         self.data = ''
         words = []
         for line in data:
-            #line = line.replace('-', ' ')
+            line = line.replace('-', ' ')
             line = line.replace("\'", "'")
             list = line.split(" ")
             words = words + list
@@ -28,6 +28,31 @@ class Tokenizer:
         data = [word.lower() for word in data if word != ""]
 
         data = [ps.stem(word) for word in data if not(word in self.stops) and not('http' in word)]
+        
+        #data = [ps.stem(word) for word in data]
+
+        data = [term.translate(str.maketrans("", "", punctuation)) for term in data]
+        data = [word for word in data if word.isalpha()]
+
+        self.terms = data
+        
+    def tokenize_sentiment(self):
+        data = self.data.splitlines()
+        self.data = ''
+        words = []
+        for line in data:
+            #line = line.replace('-', ' ')
+            line = line.replace("\'", "'")
+            list = line.split(" ")
+            words = words + list
+
+        
+
+        data = words
+        data = [word.strip(punctuation) for word in data]
+        data = [word.lower() for word in data if word != ""]
+
+        data = [ps.stem(word) for word in data if not('http' in word)]
         
         #data = [ps.stem(word) for word in data]
 
@@ -55,9 +80,12 @@ class Tokenizer:
         self.clear()
         return processed_terms
 
-    def load_and_tokenize_memory(self, data):
+    def load_and_tokenize_memory(self, data, special=None):
         self.load_file_memory(data)
-        self.tokenize()
+        if special:
+            self.tokenize_sentiment()
+        else:
+            self.tokenize()
         processed_terms = self.terms
         self.clear()
         return processed_terms

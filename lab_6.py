@@ -30,7 +30,6 @@ class DocList:
             self.cat_size.update({doc.cat : 1})
 
     def append_cat_safe(self, filename, cat, tk, limit=None):
-        tk = Tokenizer()
         if cat not in self.cat_list:
             self.cat_list.append(cat)
         with open(filename, 'r', encoding='utf-8') as f:
@@ -43,7 +42,29 @@ class DocList:
                 if limit:
                     if i >= limit:
                         break
-
+                    
+    def append_cat_safe_memory_processed(self, docs, cat, tk):
+            if cat not in self.cat_list:
+                self.cat_list.append(cat)   
+                
+            for doc in docs:
+                self.append_doc(Doc(doc, self.assign_docno(), cat))
+                
+                # /     
+        # if cat n/ot in self.cat_list:
+            # self/.cat_list.append(cat)
+# /
+            # i = /0
+            # for /line in docs:
+                # /doc = tk.load_and_tokenize_memory(line)
+                # /if doc != []:
+                # /    self.append_doc(Doc(doc, self.assign_docno(), cat))
+                # /i += 1
+                # /if limit:
+                # /    if i >= limit:
+                # /        break
+                    
+                    
     def add_to_cat_doc_map(self, doc):
         if self.cat_doc_map.get(doc.cat):
             self.cat_doc_map.get(doc.cat).append(doc)
@@ -120,7 +141,7 @@ def mi_for_all_terms(doclist, cat):
                 mi_list.append((term, mutual_information(term, cat, doclist)))
     mi_list.sort(key=lambda x: x[1], reverse=True)
     mi_list_trunc = mi_list[:10]
-    return mi_list_trunc
+    return mi_list
 
 def cs_for_all_terms(doclist, cat):
     term_cat_map = doclist.term_cat_map
@@ -131,7 +152,7 @@ def cs_for_all_terms(doclist, cat):
                 cs_list.append((term, chi_squared(term, cat, doclist)))
     cs_list.sort(key=lambda x: x[1], reverse=True)
     cs_list_trunc = cs_list[:10]
-    return cs_list_trunc
+    return cs_list
 
 def create_common_dictionary(doclist):
     common_text = []
@@ -191,27 +212,31 @@ def find_cat_topic_words_from_corpus(doclist):
     topic_prob_list = get_topic_probs_for_all_cat(common_dictionary, doclist, lda)
     print(generate_cat_topic_words(lda, topic_prob_list, common_dictionary))
 
-start = timeit.default_timer()
-tk = Tokenizer()
-limit = 5000
-doclist = DocList()
-doclist.append_cat_safe('corpus2.txt', 2, tk, limit=limit)
-corp1 = timeit.default_timer()
-tk = Tokenizer()
-doclist.append_cat_safe('corpus1.txt', 1, tk, limit=limit)
-corp2 = timeit.default_timer()
-print('mutual information for corpus 2: {}\n'.format(mi_for_all_terms(doclist, 2)))
 
-print('chi squared for corpus 2: {}\n'.format(cs_for_all_terms(doclist, 2)))
 
-mi = timeit.default_timer()
+if __name__ == "__main__":
+    
+    start = timeit.default_timer()
+    tk = Tokenizer()
+    limit = 5000
+    doclist = DocList()
+    doclist.append_cat_safe('corpus2.txt', 2, tk, limit=limit)
+    corp1 = timeit.default_timer()
+    tk = Tokenizer()
+    doclist.append_cat_safe('corpus1.txt', 1, tk, limit=limit)
+    corp2 = timeit.default_timer()
+    print('mutual information for corpus 2: {}\n'.format(mi_for_all_terms(doclist, 2)[:10]))
 
-find_cat_topic_words_from_corpus(doclist)
+    print('chi squared for corpus 2: {}\n'.format(cs_for_all_terms(doclist, 2)[:10]))
 
-ldatime = timeit.default_timer()
-print('runtime:\nprocess corpus 1: {}\nprocess corpus 2: {}\ncalculate mutual information: {}\ntrain lda: {}\n'.format(
-    (corp1-start), (corp2-corp1), (mi-corp2), (ldatime-mi)
-))
+    mi = timeit.default_timer()
+
+    find_cat_topic_words_from_corpus(doclist)
+
+    ldatime = timeit.default_timer()
+    print('runtime:\nprocess corpus 1: {}\nprocess corpus 2: {}\ncalculate mutual information: {}\ntrain lda: {}\n'.format(
+        (corp1-start), (corp2-corp1), (mi-corp2), (ldatime-mi)
+    ))
 
 
 
