@@ -1,16 +1,8 @@
 import pandas as pd
 import numpy as np
-from IPython.display import display
 from math import log2
 from pprint import pp
 
-
-qrels = pd.read_csv('qrels.csv')
-results = pd.read_csv('system_results.csv')
-
-
-display(qrels)
-display(results)
 
 def get_relevance_rank_actual(query, system, k, qrels_df, results_df):
     rels_for_q = qrels_df[qrels_df['query_id'] == query]
@@ -77,6 +69,51 @@ def norm_dcg(query, ideal_dcg, system, k, qrels_df, results_df):
     norm_dcg = dcg/ideal_dcg
     return norm_dcg
 
+
+def confusion_matrix(qrels_df, results_df, k, query, system):
+    rel_ids= qrels_df[qrels_df['query_id'] == query]['doc_id'].values[:k]
+    results = results_df[(results_df['query_number'] == query) & (results_df['system_number'] == system)]['doc_number'].values[:k]
+    tp = 0
+    fp = 0
+    fn = 0
+    for result in results:
+        if result in rel_ids:
+            tp += 1
+        else: 
+            fp += 1
+    
+    for rel in rel_ids:
+        if rel not in results:
+            fn += 1
+    return tp, fp, fn
+
+def precision(qrels_df, results_df, k, query, system):
+    tp, fp, fn = confusion_matrix(qrels_df, results_df, k, query, system)
+    precision = tp/(tp + fp)
+    return precision
+
+def r_precision(qrels_df, results_df, query, system):
+    num_relevant = qrels_df[qrels_df['query_id'] == query].shape[0]
+    tp, fp, fn = confusion_matrix(qrels_df, results_df, num_relevant, query, system)
+    precision = tp/(tp + fp)
+    return precision
+
+def recall(qrels_df, results_df, k, query, system):
+    tp, fp, fn = confusion_matrix(qrels_df, results_df, k, query, system)
+    recall = tp/(tp+fn)
+    return recall
+
+def average_precision(qrels_df, results_df, query, system):
+    relevant_docs = qrels_df[qrels_df['query_id'] == query]['doc_id'].values
+    retrieved_docs = results_df[(results_df['system_number'] == system) & (results_df['query_number'] == query)]['doc_number'].values
+    average_precision = 0
+    for k,retrieved in enumerate(retrieved_docs,1):
+        if retrieved in relevant_docs:
+            average_precision += precision(qrels_df, results_df, k, query, system)
+    average_precision = average_precision/len(relevant_docs)
+    return average_precision 
+
+
 def generate_eval_dict(num_systems, num_queries, qrels_df, results_df):
     eval_dict = {}
     for q in range(1, num_queries+1):
@@ -84,22 +121,63 @@ def generate_eval_dict(num_systems, num_queries, qrels_df, results_df):
         ideal_dcg_10 = get_ideal_dcg(q, 10, qrels_df)
         ideal_dcg_20 = get_ideal_dcg(q, 20, qrels_df)
         for s in range(1, num_systems+1):
+            ave_precision = average_precision(qrels_df, results_df, q, s)
+            precision_10 = precision(qrels_df, results_df, 10, q, s)
+            recall_50 = recall(qrels_df, results_df, 50, q, s)
+            r_prec = r_precision(qrels_df, results_df, q, s)
             norm_10 = norm_dcg(q, ideal_dcg_10, s, 10, qrels_df, results_df)
             norm_20 = norm_dcg(q, ideal_dcg_20, s, 20, qrels_df, results_df)
-            eval_dict.get(q).update({s : {'nDCG@10' : norm_10, 'nDCG@20' : norm_20}})
+            eval_dict.get(q).update({s : {'nDCG@10' : norm_10, 'nDCG@20' : norm_20,
+             'P@10' : precision_10, 'R@50' : recall_50, 'r-precision' : r_prec, 'AP' : ave_precision}})
+    
+   
     return eval_dict
 
+def generate_mean_dict(eval_dict, num_systems, num_queries):
+    metrics = ['P@10', 'R@50', 'r-precision', 'AP', 'nDCG@10', 'nDCG@20']
+    mean_dict = {}
+    for s in range(1,num_systems+1):
+        mean_dict.update({s : {}})
+        for q in range(1,num_queries+1):
+            for metric in metrics:
+                if not mean_dict.get(s).get(metric):
+                    mean_dict.get(s).update({metric : eval_dict.get(q).get(s).get(metric)})
+                else:
+                    mean_dict.get(s)[metric] += eval_dict.get(q).get(s).get(metric)
+        for metric in metrics:
+            mean_dict.get(s)[metric] = mean_dict.get(s)[metric]/num_queries
+    return mean_dict
 
-def confusion_matrix(qrels_df, results_df, k, query, system):
-    query_docs_ids = qrels_df[qrels_df['query_id'] == query]['doc_id']
-    print(query_docs_ids.values)
-    
-    
 
-num_systems = len(results['system_number'].unique())
-num_queries = len(qrels['query_id'].unique())
+            
+def write_eval_to_file(eval_dict, mean_dict, num_systems, num_queries):
+    metrics = ['P@10', 'R@50', 'r-precision', 'AP', 'nDCG@10', 'nDCG@20']
+    f = open('ir_eval.csv', 'w')
+    f.write('system_number,query_number,P@10,R@50,r-precision,AP,nDCG@10,nDCG@20\n')
+    for s in range(1,num_systems+1):
+        for q in range(1,num_queries+1):
+            f.write('{},{}'.format(s, q))
+            for metric in metrics:
+                f.write(',{:.3f}'.format(eval_dict.get(q).get(s).get(metric)))
+            f.write('\n')
+            if q == num_queries:
+                f.write('{},{}'.format(s, 'mean'))
+                for metric in metrics:
+                    f.write(',{:.3f}'.format(mean_dict.get(s).get(metric)))
+                if s != num_systems:
+                    f.write('\n')
+    f.close()
 
-#eval_dict = generate_eval_dict(num_systems, num_queries, qrels, results)
-#pp(eval_dict)
+        
 
-confusion_matrix(qrels, results, 10, 1, 1)
+
+def EVAL(qrel_filename, system_results_filename):  
+    qrels = pd.read_csv(qrel_filename)
+    results = pd.read_csv(system_results_filename)
+    num_queries = len(qrels['query_id'].unique())
+    num_systems = len(results['system_number'].unique())
+    eval_dict = generate_eval_dict(num_systems, num_queries, qrels, results)
+    mean_dict = generate_mean_dict(eval_dict, num_systems, num_queries)
+    write_eval_to_file(eval_dict, mean_dict, num_systems, num_queries)
+
+EVAL('qrels.csv','system_results.csv')
