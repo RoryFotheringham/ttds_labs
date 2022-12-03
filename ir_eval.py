@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from math import log2
 from pprint import pp
+from scipy import stats
+metrics = ['P@10', 'R@50', 'r-precision', 'AP', 'nDCG@10', 'nDCG@20']
 
 
 def get_relevance_rank_actual(query, system, k, qrels_df, results_df):
@@ -136,17 +138,21 @@ def generate_eval_dict(num_systems, num_queries, qrels_df, results_df):
 def generate_mean_dict(eval_dict, num_systems, num_queries):
     metrics = ['P@10', 'R@50', 'r-precision', 'AP', 'nDCG@10', 'nDCG@20']
     mean_dict = {}
+    sdev_dict = {}
     for s in range(1,num_systems+1):
         mean_dict.update({s : {}})
+        sdev_dict.update({s : {}})
         for q in range(1,num_queries+1):
             for metric in metrics:
                 if not mean_dict.get(s).get(metric):
-                    mean_dict.get(s).update({metric : eval_dict.get(q).get(s).get(metric)})
+                    mean_dict.get(s).update({metric : [eval_dict.get(q).get(s).get(metric)]})
                 else:
-                    mean_dict.get(s)[metric] += eval_dict.get(q).get(s).get(metric)
+                    mean_dict.get(s)[metric].append(eval_dict.get(q).get(s).get(metric))
         for metric in metrics:
-            mean_dict.get(s)[metric] = mean_dict.get(s)[metric]/num_queries
-    return mean_dict
+            scores = mean_dict.get(s)[metric]
+            mean_dict.get(s)[metric] = np.mean(scores)
+            sdev_dict.get(s).update({metric : np.std(scores)})
+    return mean_dict, sdev_dict
 
 
             
@@ -169,15 +175,50 @@ def write_eval_to_file(eval_dict, mean_dict, num_systems, num_queries):
     f.close()
 
         
-
-
 def EVAL(qrel_filename, system_results_filename):  
     qrels = pd.read_csv(qrel_filename)
     results = pd.read_csv(system_results_filename)
     num_queries = len(qrels['query_id'].unique())
     num_systems = len(results['system_number'].unique())
     eval_dict = generate_eval_dict(num_systems, num_queries, qrels, results)
-    mean_dict = generate_mean_dict(eval_dict, num_systems, num_queries)
+    mean_dict, sdev_dict = generate_mean_dict(eval_dict, num_systems, num_queries)
     write_eval_to_file(eval_dict, mean_dict, num_systems, num_queries)
+    return eval_dict, sdev_dict, mean_dict, num_systems, num_queries
 
-EVAL('qrels.csv','system_results.csv')
+def get_top_two_dict(mean_dict, num_systems):
+    top_two_dict = {}
+    for metric in metrics:
+        metric_means = []
+        for s in range(1,num_systems+1):
+            metric_means.append((s, mean_dict.get(s).get(metric)))
+        metric_means.sort(key=lambda x: x[1], reverse=True)
+        top_two_dict.update({metric : metric_means[:2]})
+    return top_two_dict
+
+def is_significant(mean_dict, sdev_dict, system1, system2, alpha, metric):
+    zscore = (mean_dict.get(system2).get(metric) - mean_dict.get(system1).get(metric)) / sdev_dict.get(system1).get(metric)
+    p_val = stats.norm.cdf(zscore)
+    print(mean_dict.get(system2).get(metric))
+    print(mean_dict.get(system1).get(metric))
+    print(p_val)
+    sig = False
+    if p_val < alpha:
+        sig = True
+    return sig
+
+def significance_for_all(mean_dict, sdev_dict, num_systems):
+    top_two_dict = get_top_two_dict(mean_dict, num_systems)
+    for metric in metrics:
+        top_two = top_two_dict.get(metric)
+        top_system = top_two[0][0]
+        second_system = top_two[1][0]
+        sig = is_significant(mean_dict, sdev_dict, top_system, second_system, 0.0025, metric)
+        place = ' NOT '
+        if sig:
+            place = ' '
+            
+        print('top system for {met}: {sys1}\nsecond system for {met}: {sys2}\n'
+              'top system is{place}significantly better than second\n\n'.format(met=metric, sys1=top_system, sys2=second_system, place=place))
+
+eval_dict, sdev_dict, mean_dict, num_systems, num_queries = EVAL('qrels.csv','system_results.csv')
+significance_for_all(mean_dict, sdev_dict, num_systems)
