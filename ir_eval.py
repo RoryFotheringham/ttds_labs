@@ -198,9 +198,9 @@ def get_top_two_dict(mean_dict, num_systems):
 def is_significant(mean_dict, sdev_dict, system1, system2, alpha, metric):
     zscore = (mean_dict.get(system2).get(metric) - mean_dict.get(system1).get(metric)) / sdev_dict.get(system1).get(metric)
     p_val = stats.norm.cdf(zscore)
-    print(mean_dict.get(system2).get(metric))
-    print(mean_dict.get(system1).get(metric))
-    print(p_val)
+    # print(mean_dict.get(system2).get(metric))
+    # print(mean_dict.get(system1).get(metric))
+    # print(p_val)
     sig = False
     if p_val < alpha:
         sig = True
