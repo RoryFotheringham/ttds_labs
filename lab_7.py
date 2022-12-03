@@ -15,7 +15,8 @@ from preprocess import Tokenizer
 import random
 import lab_6
 
-filename = sys.argv[1]
+filename_train_dev = 'tweets_train_dev.txt'
+filename_test = 'tweets_test.txt'
 train_rat = 0.8
 dev_rat = 0.2
 num_of_mi_words = 2500
@@ -25,7 +26,7 @@ all_caps_multiplier = 1
 chars_to_remove = re.compile(f'[{string.punctuation}]')
 
 def split_data():
-    f = open(filename,encoding="latin-1")
+    f = open(filename_train_dev,encoding="latin-1")
     data = f.readlines() 
     f.close()
     del data[0]
@@ -66,7 +67,23 @@ def split_data():
             
     return train_documents, dev_documents, train_categories, dev_categories, vocab
 
-train_docs, dev_docs, train_cats, dev_cats, vocab = split_data()
+def process_test_data():
+    f = open(filename_test, encoding="latin-1")
+    data = f.readlines()
+    f.close()
+    del data[0]
+    test_documents = []
+    test_categories = []
+    for count,line in enumerate(data):
+        line = line.strip().strip()
+        if line:
+            tweet_id, category, tweet = line.split('\t')
+            words = tweet.split()
+            test_documents.append(words)
+            test_categories.append(category)
+
+    return test_documents, test_categories
+
 
 def make_word2id(vocab):
     word2id = {}
@@ -127,9 +144,7 @@ def extra_processing(docs, cats):
                 
             word = word.lower()
             tkword = tk.load_and_tokenize_memory(data=word, special=True)
-            
-            
-                
+                           
             
             # if all_caps:
             #     for _ in range(all_caps_multiplier):
@@ -243,10 +258,12 @@ def make_X_train_and_fit_base(docs, cats, vocab, C):
     model = generate_fitted_model(X_train, y_train, C)
     return model, X_train, word2id, cat2id
 
-def get_preds_and_true_from_data_base(docs, cats, model, word2id, cat2id):
+
+def get_preds_and_true_from_data_base(docs, cats, model, word2id, cat2id, id2cat):
     X = convert_to_bow_matrix_baseline(docs, word2id)
     y_true = convert_to_cat_vector(cats, cat2id)
     y_pred = model.predict(X)
+    write_crime_scenes(docs, X, y_true, y_pred, id2cat)
     return y_true, y_pred
 
 def get_preds_and_true_from_data_imp(docs, cats, model, word2id, id2df, cat2id, id2cat, mis):
@@ -254,7 +271,7 @@ def get_preds_and_true_from_data_imp(docs, cats, model, word2id, id2df, cat2id, 
     X = convert_to_matrix_improve(new_docs, word2id, id2df, mis)
     y_true = convert_to_cat_vector(new_cats, cat2id)
     y_pred = model.predict(X)
-    write_crime_scenes(new_docs, X, y_true, y_pred, id2cat)
+    #write_crime_scenes(new_docs, X, y_true, y_pred, id2cat)
     return y_true, y_pred, new_docs
 
 
@@ -264,6 +281,7 @@ def make_cat_names(cat2id):
         cat_names.append(cat)
     return cat_names
 
+#writes to a text file every misclassification
 def write_crime_scenes(docs, X, y_true, y_pred, id2cat):
     crime_scenes = []
     for i,pred in enumerate(y_pred):
@@ -278,29 +296,6 @@ def write_crime_scenes(docs, X, y_true, y_pred, id2cat):
             f.write(str(crime) + '\n\n')
     return crime_scenes
     
-        
-
-
-base_model, X_train_base, word2id_base, cat2id_base = make_X_train_and_fit_base(train_docs, train_cats, vocab, 1000)
-imp_model, X_train_imp, word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp = make_X_train_and_fit_imp(train_docs, train_cats, 0.00005)
-
-cat_names_base = make_cat_names(cat2id_base)
-cat_names_imp = make_cat_names(cat2id_imp)
-
-y_true_train_base, y_pred_train_base = get_preds_and_true_from_data_base(train_docs, train_cats, base_model,
- word2id_base, cat2id_base)
-
-y_true_train_imp, y_pred_train_imp, docs_train_imp = get_preds_and_true_from_data_imp(train_docs, train_cats, imp_model,
- word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
-
-y_true_dev_base, y_pred_dev_base = get_preds_and_true_from_data_base(dev_docs, dev_cats, base_model,
- word2id_base, cat2id_base)
-
-y_true_dev_imp, y_pred_dev_imp, docs_dev_imp = get_preds_and_true_from_data_imp(dev_docs, dev_cats, imp_model,
- word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
-
-
-
 
 def add_preds_to_file(file, true, preds, cat_names):
     dict = create_eval_dict_per_set(true, preds, cat_names)
@@ -322,23 +317,50 @@ def write_metrics(dict, file):
     f1 = dict.get('f1-score')
     file.write('{},{},{},'.format(precision, recall, f1))
 
+def text_classification():
+    test_docs, test_cats = process_test_data()
+    train_docs, dev_docs, train_cats, dev_cats, vocab = split_data()
 
-f = open('classification.csv', 'w')
-f.write('system,split,p-pos,r-pos,f-pos,p-neg,r-neg,f-neg,p-neu,r-neu,f-neu,p-macro,r-macro,f-macro\n')
-f.write('baseline,train,')
+    base_model, X_train_base, word2id_base, cat2id_base = make_X_train_and_fit_base(train_docs, train_cats, vocab, 1000)
+    imp_model, X_train_imp, word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp = make_X_train_and_fit_imp(train_docs, train_cats, 0.00005)
 
-add_preds_to_file(f,y_true_train_base,y_pred_train_base, cat_names_base)
-f.write('\nbaseline,dev,')
-add_preds_to_file(f,y_true_dev_base,y_pred_dev_base, cat_names_base)
-f.write('\nbaseline,test,')
-#add_preds_to_file(f,y_true_test,base_test_preds)
-f.write('\nimproved,train,')
-add_preds_to_file(f,y_true_train_imp,y_pred_train_imp, cat_names_imp)
-f.write('\nimproved,dev,')
-add_preds_to_file(f,y_true_dev_imp,y_pred_dev_imp, cat_names_imp)
-f.write('\nimproved,test,')
-#add_preds_to_file(f,y_true_test,imp_test_preds)
+    cat_names_base = make_cat_names(cat2id_base)
+    cat_names_imp = make_cat_names(cat2id_imp)
 
+    y_true_train_base, y_pred_train_base = get_preds_and_true_from_data_base(train_docs, train_cats, base_model,
+    word2id_base, cat2id_base, id2cat_imp)
 
-f.close()
-    
+    y_true_train_imp, y_pred_train_imp, docs_train_imp = get_preds_and_true_from_data_imp(train_docs, train_cats, imp_model,
+    word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
+
+    y_true_dev_base, y_pred_dev_base = get_preds_and_true_from_data_base(dev_docs, dev_cats, base_model,
+    word2id_base, cat2id_base, id2cat_imp)
+
+    y_true_dev_imp, y_pred_dev_imp, docs_dev_imp = get_preds_and_true_from_data_imp(dev_docs, dev_cats, imp_model,
+    word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
+
+    y_true_test_imp, y_pred_test_imp, docs_test_imp = get_preds_and_true_from_data_imp(test_docs, test_cats, imp_model,
+    word2id_imp, id2df_imp, cat2id_imp, id2cat_imp, mis_imp)
+
+    y_true_test_base, y_pred_test_base = get_preds_and_true_from_data_base(test_docs, test_cats, base_model,
+    word2id_base, cat2id_base, id2cat_imp)
+
+    f = open('classification.csv', 'w')
+    f.write('system,split,p-pos,r-pos,f-pos,p-neg,r-neg,f-neg,p-neu,r-neu,f-neu,p-macro,r-macro,f-macro\n')
+    f.write('baseline,train,')
+
+    add_preds_to_file(f,y_true_train_base,y_pred_train_base, cat_names_base)
+    f.write('\nbaseline,dev,')
+    add_preds_to_file(f,y_true_dev_base,y_pred_dev_base, cat_names_base)
+    f.write('\nbaseline,test,')
+    add_preds_to_file(f,y_true_test_base,y_pred_test_base, cat_names_base)
+    f.write('\nimproved,train,')
+    add_preds_to_file(f,y_true_train_imp,y_pred_train_imp, cat_names_imp)
+    f.write('\nimproved,dev,')
+    add_preds_to_file(f,y_true_dev_imp,y_pred_dev_imp, cat_names_imp)
+    f.write('\nimproved,test,')
+    add_preds_to_file(f,y_true_test_imp,y_pred_test_imp, cat_names_imp)
+    f.close()
+
+text_classification()
+        

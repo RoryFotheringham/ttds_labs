@@ -220,5 +220,9 @@ def significance_for_all(mean_dict, sdev_dict, num_systems):
         print('top system for {met}: {sys1}\nsecond system for {met}: {sys2}\n'
               'top system is{place}significantly better than second\n\n'.format(met=metric, sys1=top_system, sys2=second_system, place=place))
 
-eval_dict, sdev_dict, mean_dict, num_systems, num_queries = EVAL('qrels.csv','system_results.csv')
-significance_for_all(mean_dict, sdev_dict, num_systems)
+
+def ir_eval():
+    eval_dict, sdev_dict, mean_dict, num_systems, num_queries = EVAL('qrels.csv','system_results.csv')
+    significance_for_all(mean_dict, sdev_dict, num_systems)
+
+ir_eval()

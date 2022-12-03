@@ -50,19 +50,6 @@ class DocList:
             for doc in docs:
                 self.append_doc(Doc(doc, self.assign_docno(), cat))
                 
-                # /     
-        # if cat n/ot in self.cat_list:
-            # self/.cat_list.append(cat)
-# /
-            # i = /0
-            # for /line in docs:
-                # /doc = tk.load_and_tokenize_memory(line)
-                # /if doc != []:
-                # /    self.append_doc(Doc(doc, self.assign_docno(), cat))
-                # /i += 1
-                # /if limit:
-                # /    if i >= limit:
-                # /        break
                     
                     
     def add_to_cat_doc_map(self, doc):
@@ -186,7 +173,8 @@ def get_overall_topic_probs_for_cat(common_dictionary, doclist, lda, cat):
     
     topic_prob_list.sort(key=lambda x: x[1], reverse=True)
     tpl_trunc = topic_prob_list[:3]
-    topic_list = [pair[0] for pair in tpl_trunc]
+    print('cat: {}, topic prob scores: {}'.format(cat, tpl_trunc))
+    #topic_list = [pair[0] for pair in tpl_trunc]
 
     return tpl_trunc
 
@@ -203,7 +191,6 @@ def generate_cat_topic_words(lda, topic_prob_list, common_dictionary):
         topic_ids = pair[1]
         for topic_id in topic_ids:
             cat_topic_words.append((pair[0], lda.print_topic(topic_id[0])))
-            print(common_dictionary.get(5635))
     return cat_topic_words
 
 def find_cat_topic_words_from_corpus(doclist):
@@ -213,30 +200,51 @@ def find_cat_topic_words_from_corpus(doclist):
     print(generate_cat_topic_words(lda, topic_prob_list, common_dictionary))
 
 
-
-if __name__ == "__main__":
-    
-    start = timeit.default_timer()
-    tk = Tokenizer()
-    limit = 5000
+def text_classification():
     doclist = DocList()
-    doclist.append_cat_safe('corpus2.txt', 2, tk, limit=limit)
-    corp1 = timeit.default_timer()
     tk = Tokenizer()
-    doclist.append_cat_safe('corpus1.txt', 1, tk, limit=limit)
-    corp2 = timeit.default_timer()
-    print('mutual information for corpus 2: {}\n'.format(mi_for_all_terms(doclist, 2)[:10]))
-
-    print('chi squared for corpus 2: {}\n'.format(cs_for_all_terms(doclist, 2)[:10]))
-
-    mi = timeit.default_timer()
-
+    f = open('train_and_dev.tsv', 'r')
+    cat2id = {}
+    id_counter = 1
+    while True:
+        line = f.readline()
+        if not line:
+            break
+        pair = line.split('\t')
+        verse = pair[1]
+        cat = pair[0]
+        if not cat2id.get(cat):
+            cat2id.update({cat : id_counter})
+            id_counter += 1
+        verse_tokens = tk.load_and_tokenize_memory(verse)
+        doclist.append_cat_safe_memory_processed([verse_tokens], cat2id.get(cat), tk)
     find_cat_topic_words_from_corpus(doclist)
 
-    ldatime = timeit.default_timer()
-    print('runtime:\nprocess corpus 1: {}\nprocess corpus 2: {}\ncalculate mutual information: {}\ntrain lda: {}\n'.format(
-        (corp1-start), (corp2-corp1), (mi-corp2), (ldatime-mi)
-    ))
+    make_table(cat2id, doclist)
+
+def make_table(cat2id, doclist):
+    file = open('text_analysis.csv','w')
+    file.write('Method\Rank')
+    for i in range(1, 11):
+        file.write(',{}'.format(i))
+    for corpus in cat2id.keys():
+        write_cs(file, corpus, cat2id, doclist)
+        write_mi(file, corpus, cat2id, doclist)
+
+def write_cs(file, corpus, cat2id, doclist):
+    cs_list = cs_for_all_terms(doclist, cat2id.get(corpus))[:10]
+    file.write('\nX^2_{}'.format(corpus))
+    for cs in cs_list:
+        file.write(',{}'.format(cs[0]))
+
+def write_mi(file, corpus, cat2id, doclist):
+    mi_list = mi_for_all_terms(doclist, cat2id.get(corpus))[:10]
+    file.write('\nMI_{}'.format(corpus))
+    for mi in mi_list:
+        file.write(',{}'.format(mi[0]))
+
+text_classification()
+
 
 
 
