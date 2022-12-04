@@ -314,24 +314,30 @@ def get_top_two_dict(mean_dict, num_systems):
         top_two_dict.update({metric : metric_means[:2]})
     return top_two_dict
 
-def is_significant(mean_dict, sdev_dict, system1, system2, alpha, metric):
-    zscore = (mean_dict.get(system2).get(metric) - mean_dict.get(system1).get(metric)) / sdev_dict.get(system1).get(metric)
-    p_val = stats.norm.cdf(zscore)
+def is_significant(mean_dict, sdev_dict, system1, system2, alpha, metric, eval_dict, num_queries):
+    #zscore = (mean_dict.get(system2).get(metric) - mean_dict.get(system1).get(metric)) / sdev_dict.get(system1).get(metric)
+    #p_val = stats.norm.cdf(zscore)
+    system_list1 = []
+    system_list2 = []
+    for q in range(1,num_queries+1):
+        system_list1.append(eval_dict.get(q).get(system1).get(metric))
+        system_list2.append(eval_dict.get(q).get(system2).get(metric))
     # print(mean_dict.get(system2).get(metric))
     # print(mean_dict.get(system1).get(metric))
     # print(p_val)
+    p_val = stats.ttest_ind(system_list1, system_list2).pvalue
     sig = False
     if p_val < alpha:
         sig = True
     return sig
 
-def significance_for_all(mean_dict, sdev_dict, num_systems):
+def significance_for_all(mean_dict, sdev_dict, num_systems, eval_dict, num_queries):
     top_two_dict = get_top_two_dict(mean_dict, num_systems)
     for metric in metrics:
         top_two = top_two_dict.get(metric)
         top_system = top_two[0][0]
         second_system = top_two[1][0]
-        sig = is_significant(mean_dict, sdev_dict, top_system, second_system, 0.0025, metric)
+        sig = is_significant(mean_dict, sdev_dict, top_system, second_system, 0.0025, metric, eval_dict, num_queries)
         place = ' NOT '
         if sig:
             place = ' '
@@ -342,7 +348,7 @@ def significance_for_all(mean_dict, sdev_dict, num_systems):
 
 def ir_eval(qrel_filename, results_filename):
     eval_dict, sdev_dict, mean_dict, num_systems, num_queries = EVAL(qrel_filename,results_filename)
-    significance_for_all(mean_dict, sdev_dict, num_systems)
+    significance_for_all(mean_dict, sdev_dict, num_systems, eval_dict, num_queries)
 
 
 # ================================================================
@@ -564,6 +570,9 @@ def text_anal(filename):
             id_counter += 1
         verse_tokens = tk.load_and_tokenize_memory(verse)
         doclist.append_cat_safe_memory_processed([verse_tokens], cat2id.get(cat), tk)
+    for cat in cat2id.keys():
+        print('\n' + str(cat))
+        mi_for_all_terms(doclist, cat2id.get(cat))
     find_cat_topic_words_from_corpus(doclist)
 
     make_table(cat2id, doclist)
@@ -579,12 +588,14 @@ def make_table(cat2id, doclist):
 
 def write_cs(file, corpus, cat2id, doclist):
     cs_list = cs_for_all_terms(doclist, cat2id.get(corpus))[:10]
+    print(cs_list)
     file.write('\nX^2_{}'.format(corpus))
     for cs in cs_list:
         file.write(',{}'.format(cs[0]))
 
 def write_mi(file, corpus, cat2id, doclist):
     mi_list = mi_for_all_terms(doclist, cat2id.get(corpus))[:10]
+    print(mi_list)
     file.write('\nMI_{}'.format(corpus))
     for mi in mi_list:
         file.write(',{}'.format(mi[0]))
